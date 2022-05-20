@@ -118,6 +118,41 @@ class TrainablePositionEncoding(AbstractPositionEncoding):
         pos_embs = self._pos_embs.unsqueeze(0).expand(batch_size, -1, -1)
         return pos_embs
 
+class ImagePositionEncoding(AbstractPositionEncoding):
+    """Multidimensional position encoding."""
+    def __init__(self, height, width, colors=None, num_channels=128, init_scale=0.02):
+        super(ImagePositionEncoding, self).__init__()
+        self._height = height
+        self._width = width
+        self._colors = colors
+        self._init_scale = init_scale
+        self._height_embs = nn.Parameter(torch.zeros(1, height, num_channels))
+        self._width_embs = nn.Parameter(torch.zeros(1, width, num_channels))
+        if self._colors is not None:
+            self._colors_emb = nn.Parameter(torch.zeros(1, colors, num_channels))
+        self.initialize_parameters()
+
+    def initialize_parameters(self):
+        nn.init.trunc_normal_(self._height_embs.data, std=self._init_scale)
+        nn.init.trunc_normal_(self._width_embs.data, std=self._init_scale)
+        if self._colors is not None:
+            nn.init.trunc_normal_(self._colors_emb.data, std=self._init_scale)
+
+    def forward(self, batch_size: int, pos=None) -> torch.Tensor:
+        del pos
+        height_embs = self._height_embs
+        width_embs = self._width_embs
+        if self._colors is not None:
+            colors_embs = self._colors_emb
+
+        pos_embs = height_embs.repeat_interleave(self._width, dim=1) + \
+            width_embs.repeat(batch_size, self._height, 1)
+        if self._colors is not None:
+            pos_embs = pos_embs.repeat(batch_size, self._colors, 1) + \
+                colors_embs.repeat_interleave(batch_size, self._height * self._width, 1)
+
+        return pos_embs
+
 def _check_or_build_spatial_positions(pos, index_dims, batch_size):
     """Checks or builds spatial position features (x, y, ...).
 

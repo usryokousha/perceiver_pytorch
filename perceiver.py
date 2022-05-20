@@ -159,15 +159,20 @@ class MLP(nn.Module):
                  in_channels,
                  out_channels,
                  widening_factor=4,
-                 dropout_prob=0.0) -> None:
+                 dropout_prob=0.0,
+                 use_square_relu=False) -> None:
         super().__init__()
+        self._use_square_relu = use_square_relu
         self.proj1 = nn.Linear(in_channels, out_channels * widening_factor)
         self.proj2 = nn.Linear(out_channels * widening_factor, out_channels)
         self.dropout = nn.Dropout(dropout_prob)
 
     def forward(self, x):
         x = self.proj1(x)
-        x = F.gelu(x)
+        if self._use_square_relu:
+            x = F.relu(x) ** 2
+        else:
+            x = F.gelu(x)
         x = self.proj2(x)
         return self.dropout(x)
 
@@ -176,22 +181,23 @@ class SelfAttention(nn.Module):
     """A self-attention module, including a dense block."""
 
     def __init__(self,
-                 in_q_channels,
-                 in_kv_channels,
+                 in_qkv_channels,
                  out_qk_channels,
                  out_v_channels=None,
                  widening_factor=4,
                  dropout_prob=0.0,
                  dropout_attn_prob=0.0,
-                 num_heads=8):
+                 num_heads=8,
+                 use_square_relu=False,):
         super().__init__()
+        self._use_square_relu = use_square_relu
         self.qkv_norm = nn.LayerNorm(out_qk_channels)
         self.attn_norm = nn.LayerNorm(out_v_channels or out_qk_channels)
-        self.attn = Attention(in_q_channels, in_kv_channels, out_qk_channels, out_v_channels,
+        self.attn = Attention(in_qkv_channels, in_qkv_channels, out_qk_channels, out_v_channels,
                               num_heads, dropout_prob=dropout_attn_prob)
         self.dropout = nn.Dropout(dropout_prob)
         self.mlp = MLP(out_qk_channels, out_qk_channels,
-                       widening_factor, dropout_prob)
+                       widening_factor, dropout_prob, use_square_relu)
 
     def forward(self, inputs, attention_mask=None):
         # Project the input to a common feature dimension
@@ -215,8 +221,10 @@ class CrossAttention(nn.Module):
                  dropout_prob=0.0,
                  num_heads=8,
                  shape_for_attn='kv',
-                 use_query_residual=True):
+                 use_query_residual=True,
+                 use_square_relu=False,):
         super().__init__()
+        self._use_square_relu = use_square_relu
         self._widening_factor = widening_factor
         self._use_query_residual = use_query_residual
         output_channels = in_q_channels
@@ -242,7 +250,7 @@ class CrossAttention(nn.Module):
         self.attn = Attention(in_q_channels, in_kv_channels, qk_channels, v_channels,
                                 num_heads, dropout_prob=dropout_attn_prob, output_channels=output_channels)
 
-        self.mlp = MLP(v_channels, v_channels, 4, dropout_prob=dropout_prob)
+        self.mlp = MLP(v_channels, v_channels, 4, dropout_prob=dropout_prob, use_square_relu=use_square_relu)
 
         self.dropout = nn.Dropout(dropout_prob)
 
